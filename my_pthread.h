@@ -12,10 +12,14 @@
 #define CURR_THREAD_EXIT 0
 #define RUN_NEXT_THREAD 1
 #define JOIN 2
+#define LOCK 3
+#define UNLOCK 4
 
 #define MAX_NODE_NUM 1000
+#define MAX_MUTEX_NUM 1000
+
 #define MAX_STACK_SAPCE 16384
-#define MAX_THREAD_STACK_SPACE 8192
+#define MAX_THREAD_STACK_SPACE 4096
 typedef struct TCB{
 	pthread_t thread_id;
 	ucontext_t thread_context;
@@ -23,27 +27,43 @@ typedef struct TCB{
 
 typedef struct Node{
 	TCB * thread_block;
+	int startTime;
 	struct Node * next;
 	struct Node * pre;
 	struct Node * waitingList; 
 }Node;
 
 typedef struct Scheduler{
-	struct Node *head;
-	struct Node *tail;
-	int maxSize;
-	int size;
-	int action;
+	struct Node *head; // the head of running queue 
+	struct Node *tail; // the tail of running queue
+	int threadSize; // the number of thread in the running queue
+	int action; // next thing the scheduler will do
 	int threadCreated;
-	pthread_t joinId;
+	pthread_t joinId; // the id of thread you want to waiting for
+
+	int curMutexID; // current lock id
+	int mutexSize; //determine which MUTEX ID is free
 
 	ucontext_t sched_context;
 }Scheduler;
+
+typedef struct mutex_t
+{
+	int isLock;
+	int mutexID;
+
+}my_pthread_mutex_t;
+
 struct sigaction handler;
+
 char scheduler_stack[MAX_STACK_SAPCE];
 char thread_stack[MAX_NODE_NUM][MAX_THREAD_STACK_SPACE];
 
-typedef pthread_mutex_t my_pthread_mutex_t;
+
+int returnValue[MAX_NODE_NUM]; //return value of thread
+
+Node *mutexWaitingList[MAX_MUTEX_NUM];
+
 
 
 int my_pthread_create(pthread_t * thread, pthread_attr_t * attr, void *(*function)(void *), void * arg);
@@ -66,7 +86,11 @@ void curExit();
 
 void runNextThread();
 
-int joinThread();
+void joinThread();
+
+void lock();
+
+void unlock();
 
 pthread_t addNewThread(TCB *block);
 

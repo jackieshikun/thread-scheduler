@@ -1,28 +1,66 @@
 #include "my_pthread.h"
 
 Scheduler *scheduler;
-int isSchdulerCreated = 0;
 
+int isSchdulerCreated = 0;
 void ARM_handler(){
 	my_pthread_yield();
 }
 
 void schedule(void){
-	//printf("entering schedule,action = %d\n",scheduler->action);
-	while(scheduler->size > 0){
+	//printf("entering sizeschedule,action = %d\n",scheduler->action);
+	while(scheduler->threadSize > 0){
+		//do priority thing here
 		switch(scheduler->action){
 			case CURR_THREAD_EXIT: curExit(); break;
 			case RUN_NEXT_THREAD: runNextThread(); break;
 			case JOIN: joinThread(); break;
+			case LOCK: lock(); break;
+			case UNLOCK: unlock(); break;
 			default: printf("schedule default\n"); return;
 		}
 
 	}
 
 }
+void lock(){
+	printf("Entering lock function\n");
+	Node * mutexWaitingListTail = mutexWaitingList[scheduler->curMutexID];
+	while(mutexWaitingListTail->next != NULL) mutexWaitingListTail = mutexWaitingListTail->next;
+
+	mutexWaitingListTail = scheduler->head;
+	scheduler->head = scheduler->head->next;
+	mutexWaitingListTail->next = NULL;
+
+	if(scheduler->head == NULL){
+		printf("deadlock!\n");
+		exit(0);
+	}
+	scheduler->head->pre = NULL;
+	scheduler->action = CURR_THREAD_EXIT;
+	swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
+
+}
+void unlock(){
+	printf("Entering unlock function");
+	Node * mutexWaitingListHead = mutexWaitingList[scheduler->curMutexID];
+	if(mutexWaitingListHead != NULL){
+		scheduler->tail->next = mutexWaitingListHead;
+		mutexWaitingListHead->pre = scheduler->tail;
+		scheduler->tail = mutexWaitingListHead;
+		mutexWaitingList[scheduler->curMutexID] = mutexWaitingListHead->next;
+
+		scheduler->tail->next = NULL;
+	}
+	scheduler->action = CURR_THREAD_EXIT;
+	swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
+
+
+}
+
 pthread_t addNewThread(TCB *block){
 	//printf("entering addNewThread\n");
-	if(scheduler->size < scheduler->maxSize){
+	if(scheduler->threadSize < MAX_NODE_NUM){
 		block->thread_id = scheduler->threadCreated++;
 		Node* newNode = (Node *)malloc(sizeof(Node));
 		if (newNode == NULL){
@@ -40,7 +78,7 @@ pthread_t addNewThread(TCB *block){
 			newNode->pre = scheduler->tail;
 			scheduler->tail = newNode;
 		}
-		scheduler->size++ ;
+		scheduler->threadSize++ ;
 	}else{
 		printf("Thread poll is full\n");
 	}
@@ -68,7 +106,7 @@ void curExit(){
 
 	free(deleteNode);
 
-	scheduler->size --;
+	scheduler->threadSize --;
 	scheduler->action = CURR_THREAD_EXIT;
 	if(scheduler->head != NULL)
 		swapcontext(&(scheduler->sched_context),&(scheduler->head->thread_block->thread_context));
@@ -114,12 +152,26 @@ Node* getTargetJoinThreadPosition(Node *root, pthread_t join_id){
 	printQueue("getTargetJoinThreadPosition");
 	return root;
 }
+Node * getTargetInMutexWaitingList(pthread_t join_id){
+	Node * search = NULL;
+	int i;
+	for(i=0;i<scheduler->mutexSize;i++){
+		search = mutexWaitingList[i];
+		while(search != NULL){
+			if(search->thread_block->thread_id == join_id)
+				return search;
+			search = search->next;
+		}
 
-int joinThread(){
-	int test;
+	}
+	return NULL;
+}
+void joinThread(){
 	//printf("Entering joinThread\n");
 	//printf("schedule:%x\n",&scheduler->sched_context);
 	Node * target = getTargetJoinThreadPosition(scheduler->head,scheduler->joinId);
+	if(target == NULL)
+		target = getTargetInMutexWaitingList(scheduler->joinId);
 	if(target != NULL){
 		if(target->waitingList == NULL){
 			target->waitingList = scheduler->head;
@@ -133,7 +185,7 @@ int joinThread(){
 			}
 			scheduler->action = CURR_THREAD_EXIT;
 			printQueue("joinThread1");
-			test = swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
+			swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
 			//printf("test = %d Hello world\n",test);
 		}else{
 			Node * curWaitingThread = target->waitingList;
@@ -163,14 +215,14 @@ int joinThread(){
 	return 0;
 }
 
-int scheduler_init(){
+void scheduler_init(){
 	//printf("Entering scheduler_init\n");
 	scheduler = (Scheduler *)malloc(sizeof(Scheduler));
-	scheduler->size = 0;
-	scheduler->maxSize = MAX_NODE_NUM;
+	scheduler->threadSize = 0;
 	scheduler->head = NULL;
 	scheduler->tail = NULL;
 	scheduler->action = DO_NOTHING;
+	scheduler->mutexSize = 0;
 
 	getcontext(&scheduler->sched_context);
 	scheduler->sched_context.uc_link = 0;
@@ -196,7 +248,8 @@ int my_pthread_create(pthread_t * thread, pthread_attr_t * attr, void *(*functio
 		handler.sa_handler = ARM_handler;
 		sigaction(SIGALRM,&handler, NULL);
 	}
-
+	if(scheduler->threadSize >= MAX_NODE_NUM)
+		return -1;
 	TCB * thread_block = (TCB *)malloc(sizeof(TCB));
 	getcontext(&thread_block->thread_context);
 	thread_block->thread_context.uc_link = &scheduler->sched_context;
@@ -226,6 +279,7 @@ void pthread_exit(void *value_ptr){
 	//printf("Entering exit\n");
 	scheduler->action = CURR_THREAD_EXIT;
 	printQueue("pthread_exit");
+	returnValue[scheduler->head->thread_block->thread_id] = *((int*) value_ptr);
 	swapcontext(&(scheduler->head->thread_block->thread_context),&(scheduler->sched_context));
 
 }
@@ -235,25 +289,58 @@ int my_pthread_join(pthread_t thread, void **value_ptr){
 	scheduler->action = JOIN;
 	scheduler->joinId = thread;
 	printQueue("my_pthread_join");
+	if(value_ptr != NULL)
+		*value_ptr = &returnValue[scheduler->joinId];
 	swapcontext(&(scheduler->head->thread_block->thread_context),&(scheduler->sched_context));
 	return 0;
 }
 
 int my_pthread_mutex_init(my_pthread_mutex_t *mutex, const pthread_mutexattr_t * mutexattr){
-
+	//printf("my_pthread_mutex_init");
+	if(isSchdulerCreated){
+		scheduler_init();
+		isSchdulerCreated = 1;
+		handler.sa_handler = ARM_handler;
+		sigaction(SIGALRM,&handler, NULL);		
+	}
+	if(scheduler->mutexSize > MAX_MUTEX_NUM)
+		return -1;
+	mutex = (my_pthread_mutex_t *)malloc(sizeof(my_pthread_mutex_t));
+	mutex->isLock = 0;
+	mutex->mutexID = scheduler->mutexSize++;
+	return 0;
 
 }
 
 int my_pthread_mutex_lock(my_pthread_mutex_t *mutex){
-
+	//printf("my_pthread_mutex_lock");
+	if(mutex == NULL)
+		return -1;
+	if(mutex->isLock == 1){
+		scheduler->curMutexID = mutex->mutexID;
+		scheduler->action = LOCK;
+		swapcontext(&scheduler->head->thread_block->thread_context,&scheduler->sched_context);
+	}else
+		mutex->isLock = 0;
+	return 0;
 
 }
 int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex){
-
+	//printf("my_pthread_mutex_unlock\n");
+	if(mutex == NULL || mutex->isLock == 0)
+		return -1;
+	scheduler->action = UNLOCK;
+	scheduler->curMutexID = mutex->mutexID;
+	swapcontext(&scheduler->head->thread_block->thread_context,&scheduler->sched_context);
+	mutex->isLock = 0;
+	return 0;
 }
 int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex){
-
-
+	if(mutex == NULL)
+		return -1;
+	free(mutex);
+	scheduler->mutexSize--;
+	return 0;
 }
 void printQueue(char *name){
 	Node *print = scheduler->head;
