@@ -4,16 +4,34 @@ Scheduler *scheduler;
 
 int isSchdulerCreated = 0;
 void ARM_handler(){
+	printf("Interval\n");
 	my_pthread_yield();
 }
-
+void timer_init(int interval){
+	timer.it_value.tv_sec = 0;
+	timer.it_value.tv_usec = interval;
+	timer.it_interval.tv_sec = 0;
+	timer.it_interval.tv_usec = interval;
+	setitimer(ITIMER_REAL, &timer, &otime);
+}
+void timer_cancel(){
+	timer.it_value.tv_sec = 0;
+	timer.it_value.tv_usec = 0;
+	timer.it_interval.tv_sec = 0;
+	timer.it_interval.tv_usec = 0;
+	setitimer(ITIMER_REAL, &timer, &otime);
+}
 void schedule(void){
 	//printf("entering sizeschedule,action = %d\n",scheduler->action);
 	while(scheduler->threadSize > 0){
 		//do priority thing here
 		switch(scheduler->action){
 			case CURR_THREAD_EXIT: curExit(); break;
-			case RUN_NEXT_THREAD: runNextThread(); break;
+			case RUN_NEXT_THREAD: 
+			timer_init(TIME_INTERVAL);
+			runNextThread(); 
+			timer_cancel();
+			break;
 			case JOIN: joinThread(); break;
 			case LOCK: lock(); break;
 			case UNLOCK: unlock(); break;
@@ -224,12 +242,15 @@ void scheduler_init(){
 	scheduler->action = DO_NOTHING;
 	scheduler->mutexSize = 0;
 
+
 	getcontext(&scheduler->sched_context);
 	scheduler->sched_context.uc_link = 0;
 	scheduler->sched_context.uc_stack.ss_sp = scheduler_stack;
 	scheduler->sched_context.uc_stack.ss_size = sizeof(scheduler_stack);
 	makecontext(&scheduler->sched_context,schedule,0);
 	//printf("schedule address = %x\n",&schedule);
+
+
 
 	TCB *main_block = (TCB *)malloc(sizeof(TCB));
 	getcontext(&main_block->thread_context); 

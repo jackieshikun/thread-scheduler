@@ -7,7 +7,8 @@
 #include <signal.h>
 #include <unistd.h>
 #include <stdlib.h>
-
+#include <time.h>
+#include <sys/time.h>
 #define DO_NOTHING -1
 #define CURR_THREAD_EXIT 0
 #define RUN_NEXT_THREAD 1
@@ -20,6 +21,9 @@
 
 #define MAX_STACK_SAPCE 16384
 #define MAX_THREAD_STACK_SPACE 4096
+
+#define TIME_INTERVAL 50000 //50ms
+
 typedef struct TCB{
 	pthread_t thread_id;
 	ucontext_t thread_context;
@@ -47,6 +51,14 @@ typedef struct Scheduler{
 	ucontext_t sched_context;
 }Scheduler;
 
+typedef struct maintenanceNode
+{
+	pthread_t thread_id;
+	struct maintenanceNode *next;
+	int startTime;
+	int waitingTime;
+}maintenance;
+
 typedef struct mutex_t
 {
 	int isLock;
@@ -55,7 +67,7 @@ typedef struct mutex_t
 }my_pthread_mutex_t;
 
 struct sigaction handler;
-
+struct itimerval timer, otime;
 char scheduler_stack[MAX_STACK_SAPCE];
 char thread_stack[MAX_NODE_NUM][MAX_THREAD_STACK_SPACE];
 

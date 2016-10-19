@@ -20,6 +20,7 @@ void * producer() {
 	int count = 0;
 	do {
 		printf("producing: %d\n",shared);
+		sleep(1);
 		count++;
 		my_pthread_mutex_lock(&pcm);
 		shared += 2;
@@ -33,6 +34,7 @@ void * consumer() {
 	int count = 0;
 	do {
 		printf("consuming: %d\n",shared);
+		sleep(1);
 		count++;
 		my_pthread_mutex_lock(&pcm);
 		shared--;
