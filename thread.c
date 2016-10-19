@@ -7,6 +7,56 @@ void ARM_handler(){
 	printf("Interval\n");
 	my_pthread_yield();
 }
+
+long int get_time_stamp(){
+	struct timeval current_time;
+	gettimeofday(&current_time,NULL);
+	return 1000000*current_time.tv_sec + current_time.tv_usec;
+}
+
+void maintenance_queue_init(){
+	mainQueue = (maintenanceQueue *)malloc(sizeof(maintenanceQueue));
+	mainQueue->head = NULL;
+	mainQueue->tail = NULL;
+}
+void add_thread2mt_queue(pthread_t thread_id, long int startTime){
+	maintenanceNode *newNode = (maintenanceNode*)malloc(sizeof(maintenanceNode));
+	newNode->next = NULL;
+	newNode->thread_id = thread_id;
+	newNode->startTime = startTime;
+	newNode->runningTime = 0;
+	newNode->endTime = 0;
+	if(mainQueue->head == NULL){
+		mainQueue->head = mainQueue->tail = newNode;
+	}else{
+		mainQueue->tail->next = newNode;
+		mainQueue->tail = newNode;
+	}
+}
+maintenanceNode* find_target_mt_node(pthread_t thread_id){
+	maintenanceNode * cur = mainQueue->head;
+	while(cur != NULL){
+		if(cur->thread_id == thread_id)
+			return cur;
+		cur = cur->next;
+	}
+	return cur;
+}
+void set_thread_end_time(pthread_t thread_id, long int endTime){
+	maintenanceNode *target = find_target_mt_node(thread_id);
+	if(target != NULL){
+		target->endTime = endTime;
+	}
+}
+void set_thread_running_time(pthread_t thread_id,long int curTime){
+	maintenanceNode *target = find_target_mt_node(thread_id);
+	if(target != NULL){
+		target->runningTime += curTime - target->startTime;
+	}
+}
+
+
+
 void timer_init(int interval){
 	timer.it_value.tv_sec = 0;
 	timer.it_value.tv_usec = interval;

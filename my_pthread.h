@@ -31,7 +31,6 @@ typedef struct TCB{
 
 typedef struct Node{
 	TCB * thread_block;
-	int startTime;
 	struct Node * next;
 	struct Node * pre;
 	struct Node * waitingList; 
@@ -55,9 +54,16 @@ typedef struct maintenanceNode
 {
 	pthread_t thread_id;
 	struct maintenanceNode *next;
-	int startTime;
-	int waitingTime;
-}maintenance;
+	long int startTime;
+	long int runningTime;
+	long int endTime;
+}maintenanceNode;
+
+typedef struct maintenanceQueue
+{
+	maintenanceNode *head;
+	maintenanceNode *tail;
+}maintenanceQueue;
 
 typedef struct mutex_t
 {
@@ -68,6 +74,8 @@ typedef struct mutex_t
 
 struct sigaction handler;
 struct itimerval timer, otime;
+maintenanceQueue *mainQueue;
+
 char scheduler_stack[MAX_STACK_SAPCE];
 char thread_stack[MAX_NODE_NUM][MAX_THREAD_STACK_SPACE];
 
