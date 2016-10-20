@@ -4,7 +4,6 @@ Scheduler *scheduler;
 
 int isSchdulerCreated = 0;
 void ARM_handler(){
-	printf("Interval\n");
 	my_pthread_yield();
 }
 
@@ -55,8 +54,6 @@ void set_thread_running_time(pthread_t thread_id,long int curTime){
 	}
 }
 
-
-
 void timer_init(int interval){
 	timer.it_value.tv_sec = 0;
 	timer.it_value.tv_usec = interval;
@@ -71,28 +68,38 @@ void timer_cancel(){
 	timer.it_interval.tv_usec = 0;
 	setitimer(ITIMER_REAL, &timer, &otime);
 }
+
 void schedule(void){
 	//printf("entering sizeschedule,action = %d\n",scheduler->action);
 	while(scheduler->threadSize > 0){
 		//do priority thing here
 		switch(scheduler->action){
 			case CURR_THREAD_EXIT: curExit(); break;
-			case RUN_NEXT_THREAD: 
-			timer_init(TIME_INTERVAL);
-			runNextThread(); 
-			timer_cancel();
-			break;
+			case RUN_NEXT_THREAD: runNextThread(); break;
 			case JOIN: joinThread(); break;
 			case LOCK: lock(); break;
 			case UNLOCK: unlock(); break;
 			default: printf("schedule default\n"); return;
 		}
-
 	}
-
 }
+
+
 void lock(){
 	printf("Entering lock function\n");
+    
+    //give the current ready queue head to scheduler->head
+    if (scheduler->fb_queue->counter != 0)
+    {
+        scheduler->head = scheduler->fb_queue->high_priority_head;
+        scheduler->tail = scheduler->fb_queue->high_priority_tail;
+    }
+    else
+    {
+        scheduler->head = scheduler->fb_queue->low_priority_head;
+        scheduler->tail = scheduler->fb_queue->low_priority_tail;
+    }
+
 	Node * mutexWaitingListTail = mutexWaitingList[scheduler->curMutexID];
 	while(mutexWaitingListTail->next != NULL) mutexWaitingListTail = mutexWaitingListTail->next;
 
@@ -100,17 +107,64 @@ void lock(){
 	scheduler->head = scheduler->head->next;
 	mutexWaitingListTail->next = NULL;
 
-	if(scheduler->head == NULL){
+    //make the *_priority_head to the new head of its own queue
+    if (scheduler->fb_queue->counter != 0)
+    {
+        scheduler->fb_queue->high_priority_head = scheduler->head;
+        scheduler->fb_queue->high_priority_tail = scheduler->tail;
+    }
+    else
+    {
+        scheduler->fb_queue->low_priority_head = scheduler->head;
+        scheduler->fb_queue->low_priority_tail = scheduler->tail;
+    }
+    
+	if(scheduler->fb_queue->high_priority_head == NULL && scheduler->fb_queue->low_priority_head == NULL){
 		printf("deadlock!\n");
 		exit(0);
 	}
 	scheduler->head->pre = NULL;
 	scheduler->action = CURR_THREAD_EXIT;
+    
+
+    //increase counter to decide which ready queue to swap to
+    scheduler->fb_queue->counter = (scheduler->fb_queue->counter + 1) % 5;
+    
+    if (scheduler->fb_queue->counter != 0)
+    {
+        if (scheduler->fb_queue->high_priority_head != NULL)
+            low_priority_head != NULL)
+            scheduler->head = scheduler->fb_queue->high_priority_head;
+        else if (scheduler->fb_queue->low_priority_head != NULL)
+            scheduler->head = scheduler->fb_queue->low_priority_head;
+    }
+    else
+    {
+        if (scheduler->fb_queue->low_priority_head != NULL)
+            scheduler->head = scheduler->fb_queue->high_priority_head;
+        else if (scheduler->fb_queue->high_priority_head != NULL)
+            scheduler->head = scheduler->fb_queue->high_priority_head;
+    }
+    
 	swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
 
 }
+
+
 void unlock(){
 	printf("Entering unlock function");
+    
+    if (scheduler->fb_queue->counter != 0)
+    {
+        scheduler->head = scheduler->fb_queue->high_priority_head;
+        scheduler->tail = scheduler->fb_queue->high_priority_tail;
+    }
+    else
+    {
+        scheduler->head = scheduler->fb_queue->low_priority_head;
+        scheduler->tail = scheduler->fb_queue->low_priority_tail;
+    }
+    
 	Node * mutexWaitingListHead = mutexWaitingList[scheduler->curMutexID];
 	if(mutexWaitingListHead != NULL){
 		scheduler->tail->next = mutexWaitingListHead;
@@ -121,23 +175,43 @@ void unlock(){
 		scheduler->tail->next = NULL;
 	}
 	scheduler->action = CURR_THREAD_EXIT;
+    
+    //make the *_priority_head to the new head of its own queue
+    if (scheduler->fb_queue->counter != 0)
+    {
+        scheduler->fb_queue->high_priority_head = scheduler->head;
+        scheduler->fb_queue->high_priority_tail = scheduler->tail;
+    }
+    else
+    {
+        scheduler->fb_queue->low_priority_head = scheduler->head;
+        scheduler->fb_queue->low_priority_tail = scheduler->tail;
+    }
+    
 	swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
-
-
 }
+
 
 pthread_t addNewThread(TCB *block){
 	//printf("entering addNewThread\n");
 	if(scheduler->threadSize < MAX_NODE_NUM){
+
+		//
+		scheduler->head = scheduler->fb_queue->high_priority_head;
+		scheduler->tail = scheduler->fb_queue->high_priority_tail;
+
 		block->thread_id = scheduler->threadCreated++;
 		Node* newNode = (Node *)malloc(sizeof(Node));
+
 		if (newNode == NULL){
 			printf("fail to allocate memory\n");
 			exit(0);
 		}
+
 		newNode->thread_block = block;
 		newNode->next = NULL;
 		newNode->waitingList = NULL;
+
 		if(scheduler->head == NULL){
 			newNode->pre = NULL;
 			scheduler->tail = scheduler->head = newNode;
@@ -146,15 +220,31 @@ pthread_t addNewThread(TCB *block){
 			newNode->pre = scheduler->tail;
 			scheduler->tail = newNode;
 		}
-		scheduler->threadSize++ ;
+		scheduler->threadSize++;
 	}else{
 		printf("Thread poll is full\n");
 	}
+
+	scheduler->fb_queue->high_priority_head = scheduler->head;
+	scheduler->fb_queue->high_priority_tail= scheduler->tail;
+
 	printQueue("addNewThread");
 	return block->thread_id;
 }
+
 void curExit(){
 	//printf("Entering curexit\n");
+	if (scheduler->fb_queue->counter != 0)
+	{
+		scheduler->head = scheduler->fb_queue->high_priority_head;
+		scheduler->tail = scheduler->fb_queue->high_priority_tail;
+	}
+	else 
+	{
+		scheduler->head = scheduler->fb_queue->low_priority_head;
+		scheduler->tail = scheduler->fb_queue->low_priority_tail;
+	}
+
 	Node * deleteNode = scheduler->head;
 
 	scheduler->head = scheduler->head->next;
@@ -176,13 +266,61 @@ void curExit(){
 
 	scheduler->threadSize --;
 	scheduler->action = CURR_THREAD_EXIT;
+
+    //make the *_priority_head to the new head of its own queue
+    if (scheduler->fb_queue->counter != 0)
+    {
+        scheduler->fb_queue->high_priority_head = scheduler->head;
+        scheduler->fb_queue->high_priority_tail = scheduler->tail;
+    }
+    else
+    {
+        scheduler->fb_queue->low_priority_head = scheduler->head;
+        scheduler->fb_queue->low_priority_tail = scheduler->tail;
+    }
+    
+	//increase counter to decide which ready queue to swap to
+	scheduler->fb_queue->counter = (s->fb_queue->counter + 1) % 5;
+
+	if (scheduler->fb_queue->counter != 0)
+    {
+        if (scheduler->fb_queue->high_priority_head != NULL)
+            scheduler->head = scheduler->fb_queue->high_priority_head;
+        else if (scheduler->fb_queue->low_priority_head != NULL)
+            scheduler->head = scheduler->fb_queue->low_priority_head;
+        else
+            scheduler->head = NULL;
+    }
+	else
+    {
+        if (scheduler->fb_queue->low_priority_head != NULL)
+            scheduler->head = scheduler->fb_queue->low_priority_head;
+        else if (scheduler->fb_queue->high_priority_head != NULL)
+            scheduler->head = scheduler->fb_queue->high_priority_head;
+        else
+            scheduler->head = NULL;
+    }
+
 	if(scheduler->head != NULL)
 		swapcontext(&(scheduler->sched_context),&(scheduler->head->thread_block->thread_context));
 	printQueue("curExit");
 }
 
+
 void runNextThread(){
 	//printf("Entering runNextThread\n");
+
+	if (scheduler->fb_queue->counter != 0)
+	{
+		scheduler->head = scheduler->fb_queue->high_priority_head;
+		scheduler->tail = scheduler->fb_queue->high_priority_tail;
+	}
+	else 
+	{
+		scheduler->head = scheduler->fb_queue->low_priority_head;
+		scheduler->tail = scheduler->fb_queue->low_priority_tail;
+	}
+
 	if(scheduler->tail != scheduler->head){
 		scheduler->tail->next = scheduler->head;
 		scheduler->tail->next->pre = scheduler->tail;
@@ -194,9 +332,32 @@ void runNextThread(){
 		scheduler->tail->next = NULL;
 	}
 	scheduler->action = CURR_THREAD_EXIT;
+
+    //make the *_priority_head to the new head of its own queue
+    if (scheduler->fb_queue->counter != 0)
+    {
+        scheduler->fb_queue->high_priority_head = scheduler->head;
+        scheduler->fb_queue->high_priority_tail = scheduler->tail;
+    }
+    else
+    {
+        scheduler->fb_queue->low_priority_head = scheduler->head;
+        scheduler->fb_queue->low_priority_tail = scheduler->tail;
+    }
+
+	//increase counter to decide which ready queue to swap to
+	scheduler->fb_queue->counter = (scheduler->fb_queue->counter + 1) % 5;
+
+	if ((scheduler->fb_queue->counter == 0 && low_priority_head != NULL) 
+		|| (scheduler->fb_queue->counter != 0 && high_priority_head == NULL))
+		scheduler->head = scheduler->fb_queue->low_priority_head;
+	else 
+		scheduler->head = scheduler->fb_queue->high_priority_head;
+
 	printQueue("runNextThread");
 	swapcontext(&(scheduler->sched_context), &(scheduler->head->thread_block->thread_context));
 }
+
 
 Node* getTargetJoinThreadPosition(Node *root, pthread_t join_id){
 	//printf("Entering getTargetJoinThreadPosition\n");
@@ -220,6 +381,8 @@ Node* getTargetJoinThreadPosition(Node *root, pthread_t join_id){
 	printQueue("getTargetJoinThreadPosition");
 	return root;
 }
+
+
 Node * getTargetInMutexWaitingList(pthread_t join_id){
 	Node * search = NULL;
 	int i;
@@ -234,9 +397,23 @@ Node * getTargetInMutexWaitingList(pthread_t join_id){
 	}
 	return NULL;
 }
+
+
 void joinThread(){
 	//printf("Entering joinThread\n");
 	//printf("schedule:%x\n",&scheduler->sched_context);
+    if (scheduler->fb_queue->counter != 0)
+    {
+        scheduler->head = scheduler->fb_queue->high_priority_head;
+        scheduler->tail = scheduler->fb_queue->high_priority_tail;
+    }
+    else
+    {
+        scheduler->head = scheduler->fb_queue->low_priority_head;
+        scheduler->tail = scheduler->fb_queue->low_priority_tail;
+    }
+
+    
 	Node * target = getTargetJoinThreadPosition(scheduler->head,scheduler->joinId);
 	if(target == NULL)
 		target = getTargetInMutexWaitingList(scheduler->joinId);
@@ -246,14 +423,6 @@ void joinThread(){
 			scheduler->head->pre = NULL;
 			scheduler->head = scheduler->head->next;
 			target->waitingList->next = NULL;
-
-			if(scheduler->head == NULL){
-				printf("head == NULL,exit\n");
-				exit(0);
-			}
-			scheduler->action = CURR_THREAD_EXIT;
-			printQueue("joinThread1");
-			swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
 			//printf("test = %d Hello world\n",test);
 		}else{
 			Node * curWaitingThread = target->waitingList;
@@ -263,25 +432,74 @@ void joinThread(){
 			scheduler->head->pre = curWaitingThread;
 			scheduler->head = scheduler->head->next;
 			curWaitingThread->next->next = NULL;
-
-			if(scheduler->head == NULL){
-				printf("DeadLock\n");
-				exit(0);
-			}
-
-			scheduler->action = CURR_THREAD_EXIT;
-			printQueue("joinThread2");
-			swapcontext(&(scheduler->sched_context),&(scheduler->head->thread_block->thread_context));
-
 		}
+        
+        //make the *_priority_head to the new head of its own queue
+        if (scheduler->fb_queue->counter != 0)
+        {
+            scheduler->fb_queue->high_priority_head = scheduler->head;
+            scheduler->fb_queue->high_priority_tail = scheduler->tail;
+        }
+        else
+        {
+            scheduler->fb_queue->low_priority_head = scheduler->head;
+            scheduler->fb_queue->low_priority_tail = scheduler->tail;
+        }
+        
+        if(scheduler->fb_queue->high_priority_head == NULL && scheduler->fb_queue->low_priority_head == NULL){
+            printf("head == NULL,exit\n");
+            exit(0);
+        }
+        scheduler->action = CURR_THREAD_EXIT;
+        printQueue("joinThread1");
+        
+        //increase counter to decide which ready queue to swap to
+        scheduler->fb_queue->counter = (scheduler->fb_queue->counter + 1) % 5;
+        
+        if (scheduler->fb_queue->counter != 0)
+        {
+            if (scheduler->fb_queue->high_priority_head != NULL)
+                scheduler->head = scheduler->fb_queue->high_priority_head;
+            else if (scheduler->fb_queue->low_priority_head != NULL)
+                scheduler->head = scheduler->fb_queue->low_priority_head;
+        }
+        else
+        {
+            if (scheduler->fb_queue->low_priority_head != NULL)
+                scheduler->head = scheduler->fb_queue->high_priority_head;
+            else if (scheduler->fb_queue->high_priority_head != NULL)
+                scheduler->head = scheduler->fb_queue->high_priority_head;
+        }
+        
+        swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
 	}else{
 		scheduler->action = CURR_THREAD_EXIT;
 		printQueue("joinThread3");
+
+		//increase counter to decide which ready queue to swap to
+        scheduler->fb_queue->counter = (scheduler->fb_queue->counter + 1) % 5;
+        
+        if (scheduler->fb_queue->counter != 0)
+        {
+            if (scheduler->fb_queue->high_priority_head != NULL)
+                scheduler->head = scheduler->fb_queue->high_priority_head;
+            else if (scheduler->fb_queue->low_priority_head != NULL)
+                scheduler->head = scheduler->fb_queue->low_priority_head;
+        }
+        else
+        {
+            if (scheduler->fb_queue->low_priority_head != NULL)
+                scheduler->head = scheduler->fb_queue->high_priority_head;
+            else if (scheduler->fb_queue->high_priority_head != NULL)
+                scheduler->head = scheduler->fb_queue->high_priority_head;
+        }
+
 		swapcontext(&(scheduler->sched_context),&(scheduler->head->thread_block->thread_context));
 	}
 	//printf("WTF\n");
 	return 0;
 }
+
 
 void scheduler_init(){
 	//printf("Entering scheduler_init\n");
@@ -292,6 +510,13 @@ void scheduler_init(){
 	scheduler->action = DO_NOTHING;
 	scheduler->mutexSize = 0;
 
+	//initialize feedback queue
+	scheduler->fb_queue = (FPQ *)malloc(sizeof(FPQ));
+	scheduler->fb_queue->high_priority_head = NULL;
+	scheduler->fb_queue->high_priority_tail = NULL;
+	scheduler->fb_queue->low_priority_head = NULL;
+	scheduler->fb_queue->low_priority_tail = NULL;
+	scheduler->fb_queue->counter = 1;
 
 	getcontext(&scheduler->sched_context);
 	scheduler->sched_context.uc_link = 0;
@@ -300,8 +525,6 @@ void scheduler_init(){
 	makecontext(&scheduler->sched_context,schedule,0);
 	//printf("schedule address = %x\n",&schedule);
 
-
-
 	TCB *main_block = (TCB *)malloc(sizeof(TCB));
 	getcontext(&main_block->thread_context); 
 	main_block->thread_context.uc_link = &scheduler->sched_context;
@@ -309,6 +532,7 @@ void scheduler_init(){
 	addNewThread(main_block);
 	//printf("head:%d,address %x\n", main_block->thread_id,&main_block->thread_context);
 }
+
 
 int my_pthread_create(pthread_t * thread, pthread_attr_t * attr, void *(*function)(void *), void * arg){
 	//printf("Entering pthread_create\n");
@@ -396,6 +620,7 @@ int my_pthread_mutex_lock(my_pthread_mutex_t *mutex){
 	return 0;
 
 }
+
 int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex){
 	//printf("my_pthread_mutex_unlock\n");
 	if(mutex == NULL || mutex->isLock == 0)
@@ -406,6 +631,7 @@ int my_pthread_mutex_unlock(my_pthread_mutex_t *mutex){
 	mutex->isLock = 0;
 	return 0;
 }
+
 int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex){
 	if(mutex == NULL)
 		return -1;
@@ -413,6 +639,7 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex){
 	scheduler->mutexSize--;
 	return 0;
 }
+
 void printQueue(char *name){
 	Node *print = scheduler->head;
 	//printf("%s  ",name);
