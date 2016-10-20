@@ -31,10 +31,22 @@ typedef struct TCB{
 
 typedef struct Node{
 	TCB * thread_block;
+	int startTime;
 	struct Node * next;
 	struct Node * pre;
 	struct Node * waitingList; 
 }Node;
+
+typedef struct Two_Level_Feedback_Priority_Queue
+{
+	/*define the head & tail pointers to the high and low prior queue*/
+	struct Node * high_priority_head;
+	struct Node * high_priority_tail;
+	struct Node * low_priority_head;
+	struct Node * low_priority_tail;
+	/*counter is used for scheduling the next ready queue*/
+	int counter;	
+}FPQ;
 
 typedef struct Scheduler{
 	struct Node *head; // the head of running queue 
@@ -47,6 +59,7 @@ typedef struct Scheduler{
 	int curMutexID; // current lock id
 	int mutexSize; //determine which MUTEX ID is free
 
+	struct FPQ *fb_queue; // feed back priority queue
 	ucontext_t sched_context;
 }Scheduler;
 
