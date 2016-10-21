@@ -31,7 +31,10 @@ typedef struct TCB{
 
 typedef struct Node{
 	TCB * thread_block;
-	int startTime;
+	long int startTime;
+	//TODO: left space for the real running time variable
+	long int runningTime;
+	long int endTime;
 	struct Node * next;
 	struct Node * pre;
 	struct Node * waitingList; 
@@ -86,7 +89,7 @@ typedef struct mutex_t
 }my_pthread_mutex_t;
 
 struct sigaction handler;
-struct itimerval timer, otime;
+struct itimerval timer, otime, tick_rr; //tick_rr for round robin
 maintenanceQueue *mainQueue;
 
 char scheduler_stack[MAX_STACK_SAPCE];
