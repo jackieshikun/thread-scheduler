@@ -4,6 +4,15 @@ int shared = 0;
 void * first_message() {
 	printf("\tFirst\n");
 	my_pthread_yield();
+	sleep(2);
+    /*unsigned int i, j;
+    for (i = 0; i < 10000; i++)
+	{
+		for (j = 0 ; j < 10000;j++)
+		{
+			(i+j+1)*29 % 73;
+		}
+	}*/
 	printf("\tThird\n");
 	char* val = "first_message";
 	pthread_exit(&val);
@@ -12,6 +21,7 @@ void * first_message() {
 void * second_message() {
 	printf("\tSecond\n");
 	my_pthread_yield();
+	sleep(2);
 	printf("\tFourth\n");
 	char* val = "second_message";
 	pthread_exit(&val);
@@ -74,7 +84,6 @@ void main(void) {
 
 	printf("\n\n\nThe Readers-Writers Problem\n");
 	printf("This problem uses both a mutex and a conditional variable.\n");
-
 
 	return 0;
 }

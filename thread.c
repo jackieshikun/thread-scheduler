@@ -96,23 +96,20 @@ void schedule(void){
 	//clear the timer_rr
 	clear_timer();
 	//if thread is scheduled at first time, initialize the startTime
-	if (scheduler->head->startTime == 0)
-		scheduler->head->startTime = get_time_stamp();
+	if (scheduler->head->last_start_time == 0)
+        scheduler->head->last_start_time = get_time_stamp();
 
-	//get the current running time 
-	//TODO: Need to be modified-> the thread is not always running, so we cannot 
-	//		use the startTime all the time to calculate the running time; but it 
-	//		is ok for round robin
-	scheduler->head->runningTime = get_time_stamp() - scheduler->head->startTime;
+	//get the current running time
+	scheduler->head->runningTime += (get_time_stamp() - scheduler->head->last_start_time);
 
 	//* If the thread run out of time slice, move it to the low level queue
 	//* Only yeild() is called if the thread run out of time
 	//* If a thread is already in low, it can never go back to high, so we  
 	//* don't need to worry about the action is operated to another thread
-	//TODO: Double check the correctness
 	if (scheduler->head->runningTime > TIME_INTERVAL * 1000 && 
 		scheduler->head != scheduler->fb_queue->low_priority_head)
 	{
+		printf("thread: %d downgrade to low \n", scheduler->head->thread_block->thread_id);
 		if (scheduler->fb_queue->low_priority_head != NULL)
 		{
 			if(scheduler->tail != scheduler->head)
@@ -163,29 +160,16 @@ void schedule(void){
 		if(scheduler->fb_queue->high_priority_tail != scheduler->fb_queue->high_priority_head)
 		{
 			scheduler->fb_queue->high_priority_tail->next = scheduler->fb_queue->high_priority_head;
-			fb_queue->high_priority_head->pre = scheduler->fb_queue->high_priority_tail;
+			scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->high_priority_tail;
 			scheduler->fb_queue->high_priority_tail = scheduler->fb_queue->high_priority_tail->pre;
 			scheduler->fb_queue->high_priority_tail->next = NULL;
-			fb_queue->high_priority_head = fb_queue->high_priority_head->pre;
-			fb_queue->high_priority_head->pre = NULL;
+			scheduler->fb_queue->high_priority_head = scheduler->fb_queue->high_priority_head->pre;
+			scheduler->fb_queue->high_priority_head->pre = NULL;
 		}
 
 		//restore the head and tail
-		scheduler->head = fb_queue->high_priority_head;
-		scheduler->tail = fb_queue->high_priority_tail;
-	}
-
-	if(scheduler->fb_queue->high_priority_tail != scheduler->fb_queue->high_priority_head)
-	{
-		scheduler->fb_queue->high_priority_tail->next = scheduler->fb_queue->high_priority_head;
-		scheduler->tail->next = scheduler->head;
-		scheduler->tail->next->pre = scheduler->tail;
-
-		scheduler->head = scheduler->head->next;
-		scheduler->head->pre = NULL;
-
-		scheduler->tail = scheduler->tail->next;
-		scheduler->tail->next = NULL;
+		scheduler->head = scheduler->fb_queue->high_priority_head;
+		scheduler->tail = scheduler->fb_queue->high_priority_tail;
 	}
 
 	while(scheduler->threadSize > 0){
@@ -250,21 +234,29 @@ void lock(){
     if (scheduler->fb_queue->counter != 0)
     {
         if (scheduler->fb_queue->high_priority_head != NULL)
-            low_priority_head != NULL)
             scheduler->head = scheduler->fb_queue->high_priority_head;
         else if (scheduler->fb_queue->low_priority_head != NULL)
-            scheduler->head = scheduler->fb_queue->low_priority_head;
+		{
+			scheduler->head = scheduler->fb_queue->low_priority_head;
+			scheduler->fb_queue->counter = 0;
+		}
     }
     else
     {
         if (scheduler->fb_queue->low_priority_head != NULL)
             scheduler->head = scheduler->fb_queue->high_priority_head;
         else if (scheduler->fb_queue->high_priority_head != NULL)
-            scheduler->head = scheduler->fb_queue->high_priority_head;
+		{
+			scheduler->head = scheduler->fb_queue->high_priority_head;
+			scheduler->fb_queue->counter = 1;
+		}
     }
     
     //set timer: we only set timer before switching to the user context
     set_timer();
+    //set the last start time to current time
+    scheduler->head->last_start_time = get_time_stamp();
+
 	swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
 
 }
@@ -307,6 +299,8 @@ void unlock(){
         scheduler->fb_queue->low_priority_tail = scheduler->tail;
     }
     set_timer();
+    //set the last start time to current time
+    scheduler->head->last_start_time = get_time_stamp();
 	swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
 }
 
@@ -314,8 +308,7 @@ void unlock(){
 pthread_t addNewThread(TCB *block){
 	//printf("entering addNewThread\n");
 	if(scheduler->threadSize < MAX_NODE_NUM){
-
-		//
+		
 		scheduler->head = scheduler->fb_queue->high_priority_head;
 		scheduler->tail = scheduler->fb_queue->high_priority_tail;
 
@@ -328,16 +321,17 @@ pthread_t addNewThread(TCB *block){
 		}
 
 		// initial the time stamp to 0
-		newNode->startTime = 0;
+		newNode->startTime = get_time_stamp();
 		newNode->runningTime = 0;
+        newNode->last_start_time = 0;
 		newNode->endTime = 0;
 		newNode->thread_block = block;
 		newNode->next = NULL;
 		newNode->waitingList = NULL;
-
+        
 		if(scheduler->head == NULL){
 			newNode->pre = NULL;
-			scheduler->tail = scheduler->head = newNode;
+		    scheduler->tail = scheduler->head = newNode;
 		}else{
 			scheduler->tail->next = newNode;
 			newNode->pre = scheduler->tail;
@@ -347,11 +341,12 @@ pthread_t addNewThread(TCB *block){
 	}else{
 		printf("Thread poll is full\n");
 	}
-
 	scheduler->fb_queue->high_priority_head = scheduler->head;
 	scheduler->fb_queue->high_priority_tail= scheduler->tail;
 
 	printQueue("addNewThread");
+    
+    num_of_threads++;
 	return block->thread_id;
 }
 
@@ -367,12 +362,26 @@ void curExit(){
 		scheduler->head = scheduler->fb_queue->low_priority_head;
 		scheduler->tail = scheduler->fb_queue->low_priority_tail;
 	}
+    
+	if (scheduler->head == NULL && scheduler->fb_queue->high_priority_head != NULL)
+	{
+		scheduler->head = scheduler->fb_queue->high_priority_head;
+		scheduler->tail = scheduler->fb_queue->high_priority_tail;
+	}
 
+    scheduler->head->endTime = get_time_stamp();
+    total_turnaround += scheduler->head->endTime - scheduler->head->startTime;
+    total_running_time += scheduler->head->runningTime;
+    
 	Node * deleteNode = scheduler->head;
 
-	scheduler->head = scheduler->head->next;
-	scheduler->head->pre = NULL;
-
+	if (scheduler->head->next != NULL)
+	{
+		scheduler->head = scheduler->head->next;
+		scheduler->head->pre = NULL;
+	}
+	else
+		scheduler->head = NULL;
 	Node * curWaitingThread = deleteNode->waitingList;
 	while(curWaitingThread != NULL){
 		Node * nextThread = curWaitingThread->next;
@@ -384,7 +393,6 @@ void curExit(){
 
 		curWaitingThread = nextThread;
 	}
-
 	free(deleteNode);
 
 	scheduler->threadSize --;
@@ -403,14 +411,17 @@ void curExit(){
     }
     
 	//increase counter to decide which ready queue to swap to
-	scheduler->fb_queue->counter = (s->fb_queue->counter + 1) % 5;
+	scheduler->fb_queue->counter = (scheduler->fb_queue->counter + 1) % 5;
 
 	if (scheduler->fb_queue->counter != 0)
     {
         if (scheduler->fb_queue->high_priority_head != NULL)
             scheduler->head = scheduler->fb_queue->high_priority_head;
         else if (scheduler->fb_queue->low_priority_head != NULL)
-            scheduler->head = scheduler->fb_queue->low_priority_head;
+		{
+			scheduler->head = scheduler->fb_queue->low_priority_head;
+			scheduler->fb_queue->counter = 0;
+		}
         else
             scheduler->head = NULL;
     }
@@ -419,12 +430,17 @@ void curExit(){
         if (scheduler->fb_queue->low_priority_head != NULL)
             scheduler->head = scheduler->fb_queue->low_priority_head;
         else if (scheduler->fb_queue->high_priority_head != NULL)
-            scheduler->head = scheduler->fb_queue->high_priority_head;
+		{
+			scheduler->head = scheduler->fb_queue->high_priority_head;
+			scheduler->fb_queue->counter = 1;
+		}
         else
             scheduler->head = NULL;
     }
 
     set_timer();
+    //set the last start time to current time
+    scheduler->head->last_start_time = get_time_stamp();
 	if(scheduler->head != NULL)
 		swapcontext(&(scheduler->sched_context),&(scheduler->head->thread_block->thread_context));
 	printQueue("curExit");
@@ -471,15 +487,37 @@ void runNextThread(){
 
 	//increase counter to decide which ready queue to swap to
 	scheduler->fb_queue->counter = (scheduler->fb_queue->counter + 1) % 5;
-
-	if ((scheduler->fb_queue->counter == 0 && low_priority_head != NULL) 
-		|| (scheduler->fb_queue->counter != 0 && high_priority_head == NULL))
-		scheduler->head = scheduler->fb_queue->low_priority_head;
-	else 
-		scheduler->head = scheduler->fb_queue->high_priority_head;
+    
+	  if (scheduler->fb_queue->counter != 0)
+	  {
+		  if (scheduler->fb_queue->high_priority_head != NULL)
+			  scheduler->head = scheduler->fb_queue->high_priority_head;
+		  else if (scheduler->fb_queue->low_priority_head != NULL)
+		  {
+			  scheduler->head = scheduler->fb_queue->low_priority_head;
+			  scheduler->fb_queue->counter = 0;
+		  }
+		  else
+			  scheduler->head = NULL;
+	  }
+	  else
+	  {
+		  if (scheduler->fb_queue->low_priority_head != NULL)
+			  scheduler->head = scheduler->fb_queue->low_priority_head;
+		  else if (scheduler->fb_queue->high_priority_head != NULL)
+		  {
+			  scheduler->head = scheduler->fb_queue->high_priority_head;
+			  scheduler->fb_queue->counter = 1;
+		  }
+		  else
+			  scheduler->head = NULL;
+	  }
 
 	printQueue("runNextThread");
 	set_timer();
+    //set the last start time to current time
+    scheduler->head->last_start_time = get_time_stamp();
+	
 	swapcontext(&(scheduler->sched_context), &(scheduler->head->thread_block->thread_context));
 }
 
@@ -572,7 +610,7 @@ void joinThread(){
         }
         
         if(scheduler->fb_queue->high_priority_head == NULL && scheduler->fb_queue->low_priority_head == NULL){
-            printf("head == NULL,exit\n");
+		    printf("head == NULL,exit\n");
             exit(0);
         }
         scheduler->action = CURR_THREAD_EXIT;
@@ -596,11 +634,15 @@ void joinThread(){
                 scheduler->head = scheduler->fb_queue->high_priority_head;
         }
         set_timer();
+        //set the last start time to current time
+        scheduler->head->last_start_time = get_time_stamp();
+		
         swapcontext(&scheduler->sched_context,&scheduler->head->thread_block->thread_context);
 	}else{
 		scheduler->action = CURR_THREAD_EXIT;
 		printQueue("joinThread3");
 
+		
 		//increase counter to decide which ready queue to swap to
         scheduler->fb_queue->counter = (scheduler->fb_queue->counter + 1) % 5;
         
@@ -609,16 +651,25 @@ void joinThread(){
             if (scheduler->fb_queue->high_priority_head != NULL)
                 scheduler->head = scheduler->fb_queue->high_priority_head;
             else if (scheduler->fb_queue->low_priority_head != NULL)
-                scheduler->head = scheduler->fb_queue->low_priority_head;
+			{
+				scheduler->head = scheduler->fb_queue->low_priority_head;
+				scheduler->fb_queue->counter = 0;
+			}
         }
         else
         {
             if (scheduler->fb_queue->low_priority_head != NULL)
                 scheduler->head = scheduler->fb_queue->high_priority_head;
             else if (scheduler->fb_queue->high_priority_head != NULL)
-                scheduler->head = scheduler->fb_queue->high_priority_head;
+			{
+				scheduler->head = scheduler->fb_queue->high_priority_head;
+				scheduler->fb_queue->counter = 1;
+			}
         }
         set_timer();
+        //set the last start time to current time
+        scheduler->head->last_start_time = get_time_stamp();
+		
 		swapcontext(&(scheduler->sched_context),&(scheduler->head->thread_block->thread_context));
 	}
 	//printf("WTF\n");
@@ -634,6 +685,11 @@ void scheduler_init(){
 	scheduler->tail = NULL;
 	scheduler->action = DO_NOTHING;
 	scheduler->mutexSize = 0;
+    
+    //initialize global statistic variables
+    num_of_threads = 0;
+    total_turnaround = 0;
+    total_running_time = 0;
 
 	//initialize feedback queue
 	scheduler->fb_queue = (FPQ *)malloc(sizeof(FPQ));
