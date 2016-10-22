@@ -22,7 +22,7 @@
 #define MAX_STACK_SAPCE 16384
 #define MAX_THREAD_STACK_SPACE 4096
 
-#define TIME_INTERVAL 50000 //50ms
+#define TIME_INTERVAL 90000 //50ms
 
 typedef struct TCB{
 	pthread_t thread_id;
@@ -32,7 +32,8 @@ typedef struct TCB{
 typedef struct Node{
 	TCB * thread_block;
 	long int startTime;
-	//TODO: left space for the real running time variable
+	//the last run start time
+    long int last_start_time;
 	long int runningTime;
 	long int endTime;
 	struct Node * next;
@@ -62,7 +63,7 @@ typedef struct Scheduler{
 	int curMutexID; // current lock id
 	int mutexSize; //determine which MUTEX ID is free
 
-	struct FPQ *fb_queue; // feed back priority queue
+	FPQ *fb_queue; // feed back priority queue
 	ucontext_t sched_context;
 }Scheduler;
 
@@ -95,6 +96,8 @@ maintenanceQueue *mainQueue;
 char scheduler_stack[MAX_STACK_SAPCE];
 char thread_stack[MAX_NODE_NUM][MAX_THREAD_STACK_SPACE];
 
+long int total_turnaround, total_running_time;
+long int num_of_threads;
 
 int returnValue[MAX_NODE_NUM]; //return value of thread
 
