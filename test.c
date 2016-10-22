@@ -2,26 +2,42 @@
 my_pthread_mutex_t* pcm;
 int shared = 0;
 void * first_message() {
+    unsigned int i,j;
+	for (i = 0; i < 10000; i++)
+	{
+		for (j = 0 ; j < 10000;j++)
+		{
+			(i+j+1)*29 % 73;
+		}
+	}
 	printf("\tFirst\n");
 	my_pthread_yield();
-	sleep(2);
-    /*unsigned int i, j;
+	//sleep(2);
+   	printf("\tThird\n");
+	char* val = "first_message";
+	pthread_exit(&val);
+}
+
+void * second_message() {
+	unsigned int i , j ;
     for (i = 0; i < 10000; i++)
 	{
 		for (j = 0 ; j < 10000;j++)
 		{
 			(i+j+1)*29 % 73;
 		}
-	}*/
-	printf("\tThird\n");
-	char* val = "first_message";
-	pthread_exit(&val);
-}
+	}
 
-void * second_message() {
 	printf("\tSecond\n");
 	my_pthread_yield();
-	sleep(2);
+//	sleep(2);
+    for (i = 0; i < 10000; i++)
+	{
+		for (j = 0 ; j < 10000;j++)
+		{
+			(i+j+1)*29 % 73;
+		}
+	}
 	printf("\tFourth\n");
 	char* val = "second_message";
 	pthread_exit(&val);
@@ -69,6 +85,8 @@ void main(void) {
 	printf("\tThread 2 val: %s\n",*val2);
 	printf("Above, you should have seen Starting followed by First, Second, Third, and Fourth printed out in order.\n");
 	printf("The expected values are 1 and 2, the same as their thread ids.\n");
+    printf("turnaround  : %d\n", total_turnaround);
+	printf("running time: %d\n", total_running_time);
 
 	printf("\n\n\nProducer-Consumer Problem\n");
 
@@ -84,6 +102,6 @@ void main(void) {
 
 	printf("\n\n\nThe Readers-Writers Problem\n");
 	printf("This problem uses both a mutex and a conditional variable.\n");
-
+    
 	return 0;
 }
