@@ -93,82 +93,86 @@ void set_timer()
 void schedule(void){
 	//printf("entering sizeschedule,action = %d\n",scheduler->action);
 
-	while(scheduler->threadSize > 0){
-	
-		//clear the timer_rr
-		clear_timer();
-		//if thread is scheduled at first time, initialize the startTime
-		if (scheduler->head->last_start_time == 0)
-		       scheduler->head->last_start_time = get_time_stamp();
-		//get the current running time
-		scheduler->head->runningTime += (get_time_stamp() - scheduler->head->last_start_time);
-		//* If the thread run out of time slice, move it to the low level queue
-		//* Only yeild() is called if the thread run out of time
-		//* If a thread is already in low, it can never go back to high, so we  
-		//* don't need to worry about the action is operated to another thread
-			if (scheduler->head->runningTime > TIME_INTERVAL * 1000 && 
-			scheduler->head != scheduler->fb_queue->low_priority_head)
+	//clear the timer_rr
+	clear_timer();
+	//if thread is scheduled at first time, initialize the startTime
+	if (scheduler->head->last_start_time == 0)
+        scheduler->head->last_start_time = get_time_stamp();
+
+	//get the current running time
+	scheduler->head->runningTime += (get_time_stamp() - scheduler->head->last_start_time);
+
+	//* If the thread run out of time slice, move it to the low level queue
+	//* Only yeild() is called if the thread run out of time
+	//* If a thread is already in low, it can never go back to high, so we  
+	//* don't need to worry about the action is operated to another thread
+	if (scheduler->head->runningTime > TIME_INTERVAL * 1000 && 
+		scheduler->head != scheduler->fb_queue->low_priority_head)
+	{
+		printf("thread: %d downgrade to low \n", scheduler->head->thread_block->thread_id);
+		if (scheduler->fb_queue->low_priority_head != NULL)
 		{
-			printf("thread: %d downgrade to low \n", scheduler->head->thread_block->thread_id);
-			if (scheduler->fb_queue->low_priority_head != NULL)
-			{
-				if(scheduler->tail != scheduler->head)
-				{	//at least one node in low and more than one nodes in high
-					scheduler->fb_queue->high_priority_head = scheduler->fb_queue->low_priority_tail->next;
-					scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->low_priority_tail;
+			if(scheduler->tail != scheduler->head)
+			{	//at least one node in low and more than one nodes in high
+				scheduler->fb_queue->high_priority_head = scheduler->fb_queue->low_priority_tail->next;
+				scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->low_priority_tail;
 
-		      		scheduler->fb_queue->high_priority_head->next->pre = NULL;
-					scheduler->fb_queue->high_priority_head = scheduler->fb_queue->high_priority_head->next;
+				scheduler->fb_queue->high_priority_head->next->pre = NULL;
+				scheduler->fb_queue->high_priority_head = scheduler->fb_queue->high_priority_head->next;
 
-					scheduler->fb_queue->low_priority_tail = scheduler->fb_queue->low_priority_tail->next;
-		     		scheduler->fb_queue->low_priority_tail->next = NULL;
-				}
-				else
-				{	//only one node in high but at least one node in low
-					scheduler->fb_queue->high_priority_head = scheduler->fb_queue->low_priority_tail->next;
-					scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->low_priority_tail;
+				scheduler->fb_queue->low_priority_tail = scheduler->fb_queue->low_priority_tail->next;
+				scheduler->fb_queue->low_priority_tail->next = NULL;
 
-				    scheduler->fb_queue->high_priority_head = NULL;
-					scheduler->fb_queue->high_priority_tail = NULL;
-				}
 			}
-			else 
-			{	//no node in low but more than one node in high
-				if(scheduler->tail != scheduler->head)
-				{
-					scheduler->fb_queue->low_priority_head = scheduler->fb_queue->high_priority_head;
+			else
+			{	//only one node in high but at least one node in low
+				scheduler->fb_queue->high_priority_head = scheduler->fb_queue->low_priority_tail->next;
+				scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->low_priority_tail;
 
-				    scheduler->fb_queue->high_priority_head->next->pre = NULL;
-				    scheduler->fb_queue->high_priority_head = scheduler->fb_queue->high_priority_head->next;
-
-				    scheduler->fb_queue->low_priority_tail = scheduler->fb_queue->low_priority_head;
-				    scheduler->fb_queue->low_priority_tail->next = NULL;
-				}
-				else
-				{	//only one node in high and no node in low
-					scheduler->fb_queue->low_priority_head = scheduler->fb_queue->high_priority_head;
-					scheduler->fb_queue->low_priority_tail = scheduler->fb_queue->high_priority_tail;
-
-					scheduler->fb_queue->high_priority_head = NULL;
-					scheduler->fb_queue->high_priority_tail = NULL;
-				}
+				scheduler->fb_queue->high_priority_head = NULL;
+				scheduler->fb_queue->high_priority_tail = NULL;
 			}
-
-			//move the tail to the front to make sure the original next thread to be run
-			if(scheduler->fb_queue->high_priority_tail != scheduler->fb_queue->high_priority_head)
-			{
-				scheduler->fb_queue->high_priority_tail->next = scheduler->fb_queue->high_priority_head;
-				scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->high_priority_tail;
-				scheduler->fb_queue->high_priority_tail = scheduler->fb_queue->high_priority_tail->pre;
-				scheduler->fb_queue->high_priority_tail->next = NULL;
-				scheduler->fb_queue->high_priority_head = scheduler->fb_queue->high_priority_head->pre;
-				scheduler->fb_queue->high_priority_head->pre = NULL;
-			}
-
-			//restore the head and tail
-			scheduler->head = scheduler->fb_queue->high_priority_head;
-			scheduler->tail = scheduler->fb_queue->high_priority_tail;
 		}
+		else 
+		{	//no node in low but more than one node in high
+			if(scheduler->tail != scheduler->head)
+			{
+				scheduler->fb_queue->low_priority_head = scheduler->fb_queue->high_priority_head;
+
+				scheduler->fb_queue->high_priority_head->next->pre = NULL;
+				scheduler->fb_queue->high_priority_head = scheduler->fb_queue->high_priority_head->next;
+
+				scheduler->fb_queue->low_priority_tail = scheduler->fb_queue->low_priority_head;
+				scheduler->fb_queue->low_priority_tail->next = NULL;
+
+			}
+			else
+			{	//only one node in high and no node in low
+				scheduler->fb_queue->low_priority_head = scheduler->fb_queue->high_priority_head;
+				scheduler->fb_queue->low_priority_tail = scheduler->fb_queue->high_priority_tail;
+
+				scheduler->fb_queue->high_priority_head = NULL;
+				scheduler->fb_queue->high_priority_tail = NULL;
+			}
+		}
+
+		//move the tail to the front to make sure the original next thread to be run
+		if(scheduler->fb_queue->high_priority_tail != scheduler->fb_queue->high_priority_head)
+		{
+			scheduler->fb_queue->high_priority_tail->next = scheduler->fb_queue->high_priority_head;
+			scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->high_priority_tail;
+			scheduler->fb_queue->high_priority_tail = scheduler->fb_queue->high_priority_tail->pre;
+			scheduler->fb_queue->high_priority_tail->next = NULL;
+			scheduler->fb_queue->high_priority_head = scheduler->fb_queue->high_priority_head->pre;
+			scheduler->fb_queue->high_priority_head->pre = NULL;
+		}
+
+		//restore the head and tail
+		scheduler->head = scheduler->fb_queue->high_priority_head;
+		scheduler->tail = scheduler->fb_queue->high_priority_tail;
+	}
+
+	while(scheduler->threadSize > 0){
 		//do priority thing here
 		switch(scheduler->action){
 			case CURR_THREAD_EXIT: curExit(); break;
@@ -370,6 +374,14 @@ void curExit(){
     total_running_time += scheduler->head->runningTime;
     
 	Node * deleteNode = scheduler->head;
+
+	/*if (scheduler->head->next != NULL)
+	{
+		scheduler->head = scheduler->head->next;
+		scheduler->head->pre = NULL;
+	}
+	else
+		scheduler->head = NULL;*/
 	Node * curWaitingThread = deleteNode->waitingList;
 	while(curWaitingThread != NULL){
 		Node * nextThread = curWaitingThread->next;
@@ -429,12 +441,10 @@ void curExit(){
 
     set_timer();
     //set the last start time to current time
-    if(scheduler->head != NULL)
-	{
-		scheduler->head->last_start_time = get_time_stamp();
+    scheduler->head->last_start_time = get_time_stamp();
+	if(scheduler->head != NULL)
 		swapcontext(&(scheduler->sched_context),&(scheduler->head->thread_block->thread_context));
-	}
-    printQueue("curExit");
+	printQueue("curExit");
 }
 
 
