@@ -1,0 +1,40 @@
+thread_num =             10
+total run time         : 10.000000s
+total turn aroungd time: 107.000000s
+total waiting time     : 97.000000s
+average running time   : 1.000000s
+average turnaround time: 10.700000s
+average waiting time   : 9.700000s
+
+thread_num =             20
+total run time         : 19.000000s
+total turn aroungd time: 384.000000s
+total waiting time     : 365.000000s
+average running time   : 0.950000s
+average turnaround time: 19.200000s
+average waiting time   : 18.250000s
+
+thread_num =             30
+total run time         : 26.000000s
+total turn aroungd time: 812.000000s
+total waiting time     : 786.000000s
+average running time   : 0.866667s
+average turnaround time: 27.066667s
+average waiting time   : 26.200000s
+
+thread_num =             40
+total run time         : 36.000000s
+total turn aroungd time: 1347.000000s
+total waiting time     : 1311.000000s
+average running time   : 0.900000s
+average turnaround time: 33.675000s
+average waiting time   : 32.775000s
+
+thread_num =             50
+total run time         : 43.000000s
+total turn aroungd time: 1989.000000s
+total waiting time     : 1946.000000s
+average running time   : 0.860000s
+average turnaround time: 39.780000s
+average waiting time   : 38.920000s
+

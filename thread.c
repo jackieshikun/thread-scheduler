@@ -12,7 +12,7 @@ void ARM_handler(){
 long int get_time_stamp(){
 	struct timeval current_time;
 	gettimeofday(&current_time,NULL);
-	return 1000000*current_time.tv_sec + current_time.tv_usec;
+	return (1000000*current_time.tv_sec + current_time.tv_usec);
 }
 
 void maintenance_queue_init(){
@@ -84,8 +84,8 @@ void clear_timer()
 
 void set_timer()
 {
-    tick_rr.it_value.tv_sec = 0 ;
-    tick_rr.it_value.tv_usec = TIME_INTERVAL; // set the quanta 50ms
+    tick_rr.it_value.tv_sec = 2 ;
+    tick_rr.it_value.tv_usec = TIME_INTERVAL * 10; // set the quanta 50ms
     tick_rr.it_interval.tv_sec = 0;
     tick_rr.it_interval.tv_usec = 0;
     if(setitimer(ITIMER_REAL, &tick_rr, NULL) < 0)
@@ -96,7 +96,16 @@ void schedule(void){
 	//printf("entering sizeschedule,action = %d\n",scheduler->action);
 
 	while(scheduler->threadSize > 0){
-	
+/*		//temporary make up still need to check the bug
+		if (scheduler->fb_queue->high_priority_head == NULL && scheduler->fb_queue->high_priority_tail != NULL)
+		{
+			Node * tmp = scheduler->fb_queue->high_priority_tail;
+			while (tmp->pre != NULL)
+			{
+				tmp = tmp->pre;
+			}
+			scheduler->fb_queue->high_priority_head = tmp;
+		}*/
 		//clear the timer_rr
 		clear_timer();
 		//if thread is scheduled at first time, initialize the startTime
@@ -108,7 +117,8 @@ void schedule(void){
 		//* Only yeild() is called if the thread run out of time
 		//* If a thread is already in low, it can never go back to high, so we  
 		//* don't need to worry about the action is operated to another thread
-/*			if (scheduler->head->runningTime > TIME_INTERVAL * 1000 && 
+		//printf("current thread id: %d, runningTime: %d\n", scheduler->head->thread_block->thread_id, scheduler->head->runningTime);
+ /*    	if (scheduler->head->runningTime > TIME_INTERVAL*50 && 
 			scheduler->head != scheduler->fb_queue->low_priority_head)
 		{
 			printf("thread: %d downgrade to low \n", scheduler->head->thread_block->thread_id);
@@ -116,7 +126,7 @@ void schedule(void){
 			{
 				if(scheduler->tail != scheduler->head)
 				{	//at least one node in low and more than one nodes in high
-					scheduler->fb_queue->high_priority_head = scheduler->fb_queue->low_priority_tail->next;
+				    scheduler->fb_queue->low_priority_tail->next = scheduler->fb_queue->high_priority_head; 
 					scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->low_priority_tail;
 
 		      		scheduler->fb_queue->high_priority_head->next->pre = NULL;
@@ -127,7 +137,7 @@ void schedule(void){
 				}
 				else
 				{	//only one node in high but at least one node in low
-					scheduler->fb_queue->high_priority_head = scheduler->fb_queue->low_priority_tail->next;
+				    scheduler->fb_queue->low_priority_tail->next = scheduler->fb_queue->high_priority_head;
 					scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->low_priority_tail;
 
 				    scheduler->fb_queue->high_priority_head = NULL;
@@ -165,7 +175,7 @@ void schedule(void){
 				scheduler->fb_queue->high_priority_tail->next = NULL;
 				scheduler->fb_queue->high_priority_head = scheduler->fb_queue->high_priority_head->pre;
 				scheduler->fb_queue->high_priority_head->pre = NULL;
-			}
+		    }
 
 			//restore the head and tail
 			scheduler->head = scheduler->fb_queue->high_priority_head;
@@ -368,8 +378,8 @@ void curExit(){
 	}
 
     scheduler->head->endTime = get_time_stamp();
-    total_turnaround += scheduler->head->endTime - scheduler->head->startTime;
-    total_running_time += scheduler->head->runningTime;
+    total_turnaround += ((scheduler->head->endTime - scheduler->head->startTime)/1000000);
+    total_running_time += (scheduler->head->runningTime / 1000000);
     
 	Node * deleteNode = scheduler->head;
 	Node * curWaitingThread = deleteNode->waitingList;
@@ -453,7 +463,8 @@ void runNextThread(){
 		scheduler->head = scheduler->fb_queue->low_priority_head;
 		scheduler->tail = scheduler->fb_queue->low_priority_tail;
 	}
-
+    if (scheduler->head == NULL && scheduler->tail != NULL)
+		printf("fault happens at runNextThread\n");
 	if(scheduler->tail != scheduler->head){
 		scheduler->tail->next = scheduler->head;
 		scheduler->tail->next->pre = scheduler->tail;
@@ -617,14 +628,20 @@ void joinThread(){
             if (scheduler->fb_queue->high_priority_head != NULL)
                 scheduler->head = scheduler->fb_queue->high_priority_head;
             else if (scheduler->fb_queue->low_priority_head != NULL)
-                scheduler->head = scheduler->fb_queue->low_priority_head;
+			{
+				scheduler->head = scheduler->fb_queue->low_priority_head;
+				scheduler->fb_queue->counter = 0;
+			}
         }
         else
         {
             if (scheduler->fb_queue->low_priority_head != NULL)
                 scheduler->head = scheduler->fb_queue->high_priority_head;
             else if (scheduler->fb_queue->high_priority_head != NULL)
-                scheduler->head = scheduler->fb_queue->high_priority_head;
+			{
+				scheduler->head = scheduler->fb_queue->high_priority_head;
+				scheduler->fb_queue->counter = 1;
+			}
         }
         set_timer();
         //set the last start time to current time
@@ -842,7 +859,7 @@ void mutexTestOne() {
     my_pthread_mutex_lock(mutex1);
     localCopy = sharedVariable;
     printf("mutexTestOne read the sharedVariable, the value is %d\n", localCopy);
-    while(i<104857600){
+    while(i<1048576){
         fputs("a",fp);
         i++;
     }
@@ -865,7 +882,7 @@ void mutexTestTwo() {
     my_pthread_mutex_lock(mutex1);
     localCopy = sharedVariable;
     printf("mutexTestTwo read the sharedVariable, the value is %d\n", localCopy);
-    while(i<104857600){
+    while(i<1048576){
         fputs("a",fp);
         i++;
     }
@@ -887,7 +904,7 @@ void noMutexTestOne() {
     
     localCopy = sharedVariable1;
     printf("noMutexTestOne read the sharedVariable, the value is %d\n", localCopy);
-    while(i<104857600){
+    while(i<1048576){
         fputs("a",fp);
         i++;
     }
@@ -908,7 +925,7 @@ void noMutexTestTwo() {
     
     localCopy = sharedVariable1;
     printf("noMutexTestTwo read the sharedVariable, the value is %d\n", localCopy);
-    while(i<104857600){
+    while(i<1048576){
         fputs("a",fp);
         i++;
     }
@@ -941,7 +958,7 @@ void mod_operation(int cap) {
 void test(int thread_num){
     printf("Starting Testing\n");
     int i;
-    long int base = 100;
+    long int base = 50;
     long int random[thread_num];
     long int random_sec[thread_num];
     int thr_list[thread_num];
@@ -955,6 +972,7 @@ void test(int thread_num){
             printf("Error Creating Thread %li\n", i);
         }
     }
+
     if (my_pthread_create(&thr_list[thread_num-4], NULL, (void *(*)(void *))mutexTestOne, NULL)) {
         printf("Error Creating Thread %li\n", thread_num-4);
     }
@@ -967,7 +985,8 @@ void test(int thread_num){
     if (my_pthread_create(&thr_list[thread_num-1], NULL, (void *(*)(void *))noMutexTestTwo, NULL)) {
         printf("Error Creating Thread %li\n", thread_num-1);
     }
-	my_pthread_join(thr_list[thread_num - 1], NULL);
+	for (i = 0 ; i < thread_num ; i++)
+		my_pthread_join(thr_list[i], NULL);
 }
 
 void main(void){
@@ -975,21 +994,21 @@ void main(void){
     printf("Please input the test thread num\n");
     scanf("%d",&thread_num);
     test(thread_num);
-    long int run_time = total_running_time;
-	long int turn_around = total_turnaround;
-	long int waiting_time = turn_around - run_time;
+    double run_time = total_running_time;
+	double turn_around = total_turnaround;
+	double waiting_time = turn_around - run_time;
 	double avg_run_time = run_time / thread_num;
 	double avg_waiting_time = waiting_time / thread_num;
 	double avg_turnaround_time = turn_around / thread_num;
     FILE *fp;
-	fp = fopen("output.log_cmp","a");
+	fp = fopen("output_cmp.log","a");
     fprintf(fp,"thread_num =             %d\n",thread_num); 
-	fprintf(fp,"total run time         : %d\n", run_time);
-	fprintf(fp,"total turn aroungd time: %d\n", turn_around);
-	fprintf(fp,"total waiting time     : %d\n", waiting_time);
-	fprintf(fp,"average running time   : %f\n", avg_run_time);
-	fprintf(fp,"average turnaround time: %f\n", avg_turnaround_time);
-	fprintf(fp,"average waiting time   : %f\n", avg_waiting_time);
+	fprintf(fp,"total run time         : %fs\n", run_time);
+	fprintf(fp,"total turn aroungd time: %fs\n", turn_around);
+	fprintf(fp,"total waiting time     : %fs\n", waiting_time);
+	fprintf(fp,"average running time   : %fs\n", avg_run_time);
+	fprintf(fp,"average turnaround time: %fs\n", avg_turnaround_time);
+	fprintf(fp,"average waiting time   : %fs\n", avg_waiting_time);
     fprintf(fp,"\n");
 	fclose(fp);
 }

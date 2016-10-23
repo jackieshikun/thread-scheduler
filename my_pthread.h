@@ -22,7 +22,7 @@
 #define MAX_STACK_SAPCE 16384
 #define MAX_THREAD_STACK_SPACE 4096
 
-#define TIME_INTERVAL 90000 //50ms
+#define TIME_INTERVAL 50000 //50ms
 
 typedef struct TCB{
 	pthread_t thread_id;
@@ -96,7 +96,7 @@ maintenanceQueue *mainQueue;
 char scheduler_stack[MAX_STACK_SAPCE];
 char thread_stack[MAX_NODE_NUM][MAX_THREAD_STACK_SPACE];
 
-long int total_turnaround, total_running_time;
+double total_turnaround, total_running_time;
 long int num_of_threads;
 my_pthread_mutex_t *mutex1;
 int sharedVariable, sharedVariable1;
