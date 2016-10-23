@@ -98,12 +98,12 @@ char thread_stack[MAX_NODE_NUM][MAX_THREAD_STACK_SPACE];
 
 long int total_turnaround, total_running_time;
 long int num_of_threads;
+my_pthread_mutex_t *mutex1;
+int sharedVariable, sharedVariable1;
 
 int returnValue[MAX_NODE_NUM]; //return value of thread
 
 Node *mutexWaitingList[MAX_MUTEX_NUM];
-
-
 
 int my_pthread_create(pthread_t * thread, pthread_attr_t * attr, void *(*function)(void *), void * arg);
 
