@@ -1,3 +1,5 @@
+// 
+
 #include "my_pthread.h"
 
 Scheduler *scheduler;
@@ -10,7 +12,7 @@ void ARM_handler(){
 long int get_time_stamp(){
 	struct timeval current_time;
 	gettimeofday(&current_time,NULL);
-	return 1000000*current_time.tv_sec + current_time.tv_usec;
+	return (1000000*current_time.tv_sec + current_time.tv_usec);
 }
 
 void maintenance_queue_init(){
@@ -82,8 +84,8 @@ void clear_timer()
 
 void set_timer()
 {
-    tick_rr.it_value.tv_sec = 0 ;
-    tick_rr.it_value.tv_usec = TIME_INTERVAL; // set the quanta 50ms
+    tick_rr.it_value.tv_sec = 2 ;
+    tick_rr.it_value.tv_usec = TIME_INTERVAL * 10; // set the quanta 50ms
     tick_rr.it_interval.tv_sec = 0;
     tick_rr.it_interval.tv_usec = 0;
     if(setitimer(ITIMER_REAL, &tick_rr, NULL) < 0)
@@ -94,7 +96,16 @@ void schedule(void){
 	//printf("entering sizeschedule,action = %d\n",scheduler->action);
 
 	while(scheduler->threadSize > 0){
-	
+/*		//temporary make up still need to check the bug
+		if (scheduler->fb_queue->high_priority_head == NULL && scheduler->fb_queue->high_priority_tail != NULL)
+		{
+			Node * tmp = scheduler->fb_queue->high_priority_tail;
+			while (tmp->pre != NULL)
+			{
+				tmp = tmp->pre;
+			}
+			scheduler->fb_queue->high_priority_head = tmp;
+		}*/
 		//clear the timer_rr
 		clear_timer();
 		//if thread is scheduled at first time, initialize the startTime
@@ -106,7 +117,8 @@ void schedule(void){
 		//* Only yeild() is called if the thread run out of time
 		//* If a thread is already in low, it can never go back to high, so we  
 		//* don't need to worry about the action is operated to another thread
-			if (scheduler->head->runningTime > TIME_INTERVAL * 1000 && 
+		//printf("current thread id: %d, runningTime: %d\n", scheduler->head->thread_block->thread_id, scheduler->head->runningTime);
+ /*    	if (scheduler->head->runningTime > TIME_INTERVAL*50 && 
 			scheduler->head != scheduler->fb_queue->low_priority_head)
 		{
 			printf("thread: %d downgrade to low \n", scheduler->head->thread_block->thread_id);
@@ -114,7 +126,7 @@ void schedule(void){
 			{
 				if(scheduler->tail != scheduler->head)
 				{	//at least one node in low and more than one nodes in high
-					scheduler->fb_queue->high_priority_head = scheduler->fb_queue->low_priority_tail->next;
+				    scheduler->fb_queue->low_priority_tail->next = scheduler->fb_queue->high_priority_head; 
 					scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->low_priority_tail;
 
 		      		scheduler->fb_queue->high_priority_head->next->pre = NULL;
@@ -125,7 +137,7 @@ void schedule(void){
 				}
 				else
 				{	//only one node in high but at least one node in low
-					scheduler->fb_queue->high_priority_head = scheduler->fb_queue->low_priority_tail->next;
+				    scheduler->fb_queue->low_priority_tail->next = scheduler->fb_queue->high_priority_head;
 					scheduler->fb_queue->high_priority_head->pre = scheduler->fb_queue->low_priority_tail;
 
 				    scheduler->fb_queue->high_priority_head = NULL;
@@ -163,12 +175,12 @@ void schedule(void){
 				scheduler->fb_queue->high_priority_tail->next = NULL;
 				scheduler->fb_queue->high_priority_head = scheduler->fb_queue->high_priority_head->pre;
 				scheduler->fb_queue->high_priority_head->pre = NULL;
-			}
+		    }
 
 			//restore the head and tail
 			scheduler->head = scheduler->fb_queue->high_priority_head;
 			scheduler->tail = scheduler->fb_queue->high_priority_tail;
-		}
+		}*/
 		//do priority thing here
 		switch(scheduler->action){
 			case CURR_THREAD_EXIT: curExit(); break;
@@ -366,8 +378,8 @@ void curExit(){
 	}
 
     scheduler->head->endTime = get_time_stamp();
-    total_turnaround += scheduler->head->endTime - scheduler->head->startTime;
-    total_running_time += scheduler->head->runningTime;
+    total_turnaround += ((scheduler->head->endTime - scheduler->head->startTime)/1000000);
+    total_running_time += (scheduler->head->runningTime / 1000000);
     
 	Node * deleteNode = scheduler->head;
 	Node * curWaitingThread = deleteNode->waitingList;
@@ -451,7 +463,8 @@ void runNextThread(){
 		scheduler->head = scheduler->fb_queue->low_priority_head;
 		scheduler->tail = scheduler->fb_queue->low_priority_tail;
 	}
-
+    if (scheduler->head == NULL && scheduler->tail != NULL)
+		printf("fault happens at runNextThread\n");
 	if(scheduler->tail != scheduler->head){
 		scheduler->tail->next = scheduler->head;
 		scheduler->tail->next->pre = scheduler->tail;
@@ -615,14 +628,20 @@ void joinThread(){
             if (scheduler->fb_queue->high_priority_head != NULL)
                 scheduler->head = scheduler->fb_queue->high_priority_head;
             else if (scheduler->fb_queue->low_priority_head != NULL)
-                scheduler->head = scheduler->fb_queue->low_priority_head;
+			{
+				scheduler->head = scheduler->fb_queue->low_priority_head;
+				scheduler->fb_queue->counter = 0;
+			}
         }
         else
         {
             if (scheduler->fb_queue->low_priority_head != NULL)
                 scheduler->head = scheduler->fb_queue->high_priority_head;
             else if (scheduler->fb_queue->high_priority_head != NULL)
-                scheduler->head = scheduler->fb_queue->high_priority_head;
+			{
+				scheduler->head = scheduler->fb_queue->high_priority_head;
+				scheduler->fb_queue->counter = 1;
+			}
         }
         set_timer();
         //set the last start time to current time
@@ -764,7 +783,7 @@ int my_pthread_join(pthread_t thread, void **value_ptr){
 
 int my_pthread_mutex_init(my_pthread_mutex_t *mutex, const pthread_mutexattr_t * mutexattr){
 	//printf("my_pthread_mutex_init");
-	if(isSchdulerCreated){
+	if(isSchdulerCreated == 0){
 		scheduler_init();
 		isSchdulerCreated = 1;
 		handler.sa_handler = ARM_handler;
@@ -813,9 +832,9 @@ int my_pthread_mutex_destroy(my_pthread_mutex_t *mutex){
 }
 
 void printQueue(char *name){
-	Node *print = scheduler->head;
+//	Node *print = scheduler->head;
 	//printf("%s  ",name);
-	while(print != NULL){
+//	while(print != NULL){
 		//printf("%d-> ",print->thread_block->thread_id);
 		/*
 		Node *join = print->waitingList;
@@ -824,8 +843,172 @@ void printQueue(char *name){
 			join = join->next;
 		}
 		*/
-		print = print->next;
-	}
+//		print = print->next;
+//	}
 	//printf("\n");
 
+}
+
+void mutexTestOne() {
+    //char *s="That's good news";
+    int i=0;
+    int localCopy;
+    FILE *fp;
+    fp=fopen("test1.dat", "w");
+    
+    my_pthread_mutex_lock(mutex1);
+    localCopy = sharedVariable;
+    printf("mutexTestOne read the sharedVariable, the value is %d\n", localCopy);
+    while(i<1048576){
+        fputs("a",fp);
+        i++;
+    }
+    fflush(fp);
+    localCopy = localCopy+10;
+    sharedVariable = localCopy;
+    printf("mutexTestOne update the sharedVariable, the value now is %d\n", sharedVariable);
+    my_pthread_mutex_unlock(mutex1);
+    
+    fclose(fp);
+}
+
+void mutexTestTwo() {
+    //char *s="That's good news";
+    int i=0;
+    int localCopy;
+    FILE *fp;
+    fp=fopen("test2.dat", "w");
+    
+    my_pthread_mutex_lock(mutex1);
+    localCopy = sharedVariable;
+    printf("mutexTestTwo read the sharedVariable, the value is %d\n", localCopy);
+    while(i<1048576){
+        fputs("a",fp);
+        i++;
+    }
+    fflush(fp);
+    localCopy = localCopy-5;
+    sharedVariable = localCopy;
+    printf("mutexTestTwo update the sharedVariable, the value now is %d\n", sharedVariable);
+    my_pthread_mutex_unlock(mutex1);
+    
+    fclose(fp);
+}
+
+void noMutexTestOne() {
+    //char *s="That's good news";
+    int i=0;
+    int localCopy;
+    FILE *fp;
+    fp=fopen("test3.dat", "w");
+    
+    localCopy = sharedVariable1;
+    printf("noMutexTestOne read the sharedVariable, the value is %d\n", localCopy);
+    while(i<1048576){
+        fputs("a",fp);
+        i++;
+    }
+    fflush(fp);
+    localCopy = localCopy+10;
+    sharedVariable1 = localCopy;
+    printf("noMutexTestOne update the sharedVariable, the value now is %d\n", sharedVariable1);
+    
+    fclose(fp);
+}
+
+void noMutexTestTwo() {
+    //char *s="That's good news";
+    int i=0;
+    int localCopy;
+    FILE *fp;
+    fp=fopen("test4.dat", "w");
+    
+    localCopy = sharedVariable1;
+    printf("noMutexTestTwo read the sharedVariable, the value is %d\n", localCopy);
+    while(i<1048576){
+        fputs("a",fp);
+        i++;
+    }
+    fflush(fp);
+    localCopy = localCopy-5;
+    sharedVariable1 = localCopy;
+    printf("noMutexTestTwo update the sharedVariable, the value now is %d\n", sharedVariable1);
+    
+    fclose(fp);
+}
+
+void mod_operation(int cap) {
+    
+    int i, j;
+    int test;
+    test = 1;
+    for (i = 1; i < cap; i++) {
+        for (j = 1; j < i; j++) {
+            if (i % j == 0) {
+                continue;
+            }
+            if (j == i - 1) {
+                test = i;
+            }
+        }
+    }
+    printf("Final Test: %d\n", test);
+}
+
+void test(int thread_num){
+    printf("Starting Testing\n");
+    int i;
+    long int base = 50;
+    long int random[thread_num];
+    long int random_sec[thread_num];
+    int thr_list[thread_num];
+	my_pthread_mutex_init(mutex1, NULL);
+    for (i = 0; i < thread_num; i++) {
+        random[i] = rand() % 1000 * base;
+        printf("Random Number %li\n", random[i]);
+    }
+    for (i = 0; i < thread_num-4; i++) {
+        if (my_pthread_create(&thr_list[i], NULL, (void *(*)(void *))mod_operation, (void *)random[i]) != 0) {
+            printf("Error Creating Thread %li\n", i);
+        }
+    }
+
+    if (my_pthread_create(&thr_list[thread_num-4], NULL, (void *(*)(void *))mutexTestOne, NULL)) {
+        printf("Error Creating Thread %li\n", thread_num-4);
+    }
+    if (my_pthread_create(&thr_list[thread_num-3], NULL, (void *(*)(void *))mutexTestTwo, NULL)) {
+        printf("Error Creating Thread %li\n", thread_num-3);
+    }
+    if (my_pthread_create(&thr_list[thread_num-2], NULL, (void *(*)(void *))noMutexTestOne, NULL)) {
+        printf("Error Creating Thread %li\n", thread_num-2);
+    }
+    if (my_pthread_create(&thr_list[thread_num-1], NULL, (void *(*)(void *))noMutexTestTwo, NULL)) {
+        printf("Error Creating Thread %li\n", thread_num-1);
+    }
+	for (i = 0 ; i < thread_num ; i++)
+		my_pthread_join(thr_list[i], NULL);
+}
+
+void main(void){
+    int thread_num;
+    printf("Please input the test thread num\n");
+    scanf("%d",&thread_num);
+    test(thread_num);
+    double run_time = total_running_time;
+	double turn_around = total_turnaround;
+	double waiting_time = turn_around - run_time;
+	double avg_run_time = run_time / thread_num;
+	double avg_waiting_time = waiting_time / thread_num;
+	double avg_turnaround_time = turn_around / thread_num;
+    FILE *fp;
+	fp = fopen("output_cmp.log","a");
+    fprintf(fp,"thread_num =             %d\n",thread_num); 
+	fprintf(fp,"total run time         : %fs\n", run_time);
+	fprintf(fp,"total turn aroungd time: %fs\n", turn_around);
+	fprintf(fp,"total waiting time     : %fs\n", waiting_time);
+	fprintf(fp,"average running time   : %fs\n", avg_run_time);
+	fprintf(fp,"average turnaround time: %fs\n", avg_turnaround_time);
+	fprintf(fp,"average waiting time   : %fs\n", avg_waiting_time);
+    fprintf(fp,"\n");
+	fclose(fp);
 }
